@@ -4,13 +4,15 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
+    paths:
+      - 'PyIDE-source.zip'
+      - 'app/**'
 
 permissions:
   contents: write
 
 jobs:
   build:
-    if: hashFiles('PyIDE-source.zip') != '' || hashFiles('app/build.gradle.kts') != ''
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
