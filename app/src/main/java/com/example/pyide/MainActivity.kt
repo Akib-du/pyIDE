@@ -1,8 +1,12 @@
 package com.example.pyide
 
 import android.graphics.BitmapFactory
+import android.net.Uri
+import android.widget.Toast
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -20,6 +24,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.*
 import androidx.compose.ui.text.font.FontFamily
@@ -143,6 +148,24 @@ fun Ide(py: PyObject, proj: File, dark: Boolean, toggleTheme: () -> Unit) {
     var menu by remember { mutableStateOf(false) }
     var showNew by remember { mutableStateOf(false) }
     var newName by remember { mutableStateOf("") }
+    val context = LocalContext.current
+    var plotToSave by remember { mutableStateOf<String?>(null) }
+    val savePlotLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("image/png")
+    ) { uri: Uri? ->
+        val source = plotToSave
+        if (uri != null && source != null) {
+            try {
+                context.contentResolver.openOutputStream(uri)?.use { output ->
+                    File(source).inputStream().use { input -> input.copyTo(output) }
+                } ?: error("Could not open destination")
+                Toast.makeText(context, "Plot saved successfully", Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                Toast.makeText(context, "Could not save plot: ${e.message}", Toast.LENGTH_LONG).show()
+            }
+        }
+        plotToSave = null
+    }
 
     val bridge = remember {
         Bridge(
@@ -342,7 +365,17 @@ fun Ide(py: PyObject, proj: File, dark: Boolean, toggleTheme: () -> Unit) {
                     if (plots.isEmpty()) Text("No plots yet. Call plt.show() in your code.", style = mono)
                     plots.forEach { p ->
                         val bmp = remember(p) { BitmapFactory.decodeFile(p)?.asImageBitmap() }
-                        if (bmp != null) Image(bmp, null, Modifier.fillMaxWidth().padding(bottom = 8.dp), contentScale = ContentScale.FillWidth)
+                        Column(Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
+                            if (bmp != null) {
+                                Image(bmp, null, Modifier.fillMaxWidth(), contentScale = ContentScale.FillWidth)
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                                    TextButton(onClick = {
+                                        plotToSave = p
+                                        savePlotLauncher.launch(File(p).name)
+                                    }) { Text("Save PNG") }
+                                }
+                            }
+                        }
                     }
                 }
                 else -> Column(Modifier.fillMaxSize()) {
