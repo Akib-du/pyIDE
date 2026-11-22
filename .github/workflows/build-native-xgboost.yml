@@ -1,0 +1,91 @@
+name: Build XGBoost Android wheel
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [native-ml-geo-stack]
+    paths:
+      - '.github/workflows/build-native-xgboost.yml'
+      - 'native-tests/**'
+
+permissions:
+  contents: read
+
+jobs:
+  build-xgboost:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout PyIDE
+        uses: actions/checkout@v4
+
+      - name: Checkout pinned Chaquopy wheel builder
+        uses: actions/checkout@v4
+        with:
+          repository: chaquo/chaquopy
+          ref: 502ad46fe81532150b74fb6d299c4d85f5c61b03
+          path: chaquopy
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10.13'
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android native build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake ninja-build patch patchelf unzip wget
+          sdkmanager --install "platforms;android-24" "ndk;25.2.9519653" "cmake;3.22.1"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/25.2.9519653" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/25.2.9519653" >> "$GITHUB_ENV"
+
+      - name: Install Chaquopy wheel-builder requirements
+        working-directory: chaquopy/server/pypi
+        run: python -m pip install -r requirements.txt
+
+      - name: Download matching Chaquopy Python 3.10 target
+        working-directory: chaquopy
+        run: target/download-target.sh maven/com/chaquo/python/target/3.10.13-0
+
+      - name: Build XGBoost for Android ARM64 / CPython 3.10
+        working-directory: chaquopy/server/pypi
+        env:
+          ANDROID_HOME: ${{ env.ANDROID_HOME }}
+          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
+        run: |
+          ./build-wheel.py --python 3.10 --abi arm64-v8a --api-level 24 xgboost
+          find dist -maxdepth 2 -type f -name '*.whl' -print
+
+      - name: Verify wheel tag and architecture
+        working-directory: chaquopy/server/pypi
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+          wheels = list(Path("dist").rglob("xgboost-*.whl"))
+          assert len(wheels) == 1, f"Expected one XGBoost wheel, found: {wheels}"
+          wheel = wheels[0]
+          assert "cp310-cp310-android_24_arm64_v8a" in wheel.name, wheel.name
+          with ZipFile(wheel) as z:
+              native = [n for n in z.namelist() if n.endswith(".so")]
+              assert native, "Wheel contains no native shared library"
+              print("Wheel:", wheel.name)
+              print("Native objects:", native)
+          PY
+
+      - name: Upload XGBoost wheel candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: pyide-xgboost-cp310-android-arm64-candidate
+          path: chaquopy/server/pypi/dist/**/*.whl
+          if-no-files-found: error
+          retention-days: 14
