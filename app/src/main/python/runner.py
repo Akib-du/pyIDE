@@ -1,4 +1,4 @@
-import sys, io, os, re, json, zipfile, shutil, threading, builtins, ctypes, traceback, urllib.request
+import sys, io, os, re, json, zipfile, shutil, threading, builtins, ctypes, traceback, urllib.request, codeop
 import jedi
 from pyflakes import api as pyflakes_api
 
@@ -8,6 +8,9 @@ CANCEL = "__PYIDE_CANCEL__"  # must match Bridge.CANCEL in Kotlin
 _tid = None
 _bridge = None
 _plot_n = 0
+_namespace = {"__name__": "__main__"}
+_console_buffer = ""
+_execution_lock = threading.RLock()
 
 
 def init(site_dir, plot_dir, mpl_dir):
@@ -97,44 +100,89 @@ def _make_input(bridge, out):
 
 
 # ---------- run / stop ----------
-def run(code, workdir, bridge):
-    global _tid, _bridge
-    _bridge, _tid = bridge, threading.get_ident()
-    _clear_plots()
+def _attach_console(bridge):
     out = _Out(bridge)
     saved = (sys.stdout, sys.stderr, sys.stdin, builtins.input)
     sys.stdout = sys.stderr = out
     sys.stdin = _In(bridge, out)
     builtins.input = _make_input(bridge, out)
-    try:
-        os.chdir(workdir)
-        if workdir not in sys.path:
-            sys.path.insert(0, workdir)
-        exec(compile(code, "<editor>", "exec"), {"__name__": "__main__"})
-        # Fallback: save figures which remain open if the selected Matplotlib
-        # backend did not handle plt.show(). Figures already shown by the
-        # PyIDE backend are removed from Gcf, so they are not saved twice.
+    return out, saved
+
+
+def _restore_console(out, saved):
+    out.flush()
+    sys.stdout, sys.stderr, sys.stdin, builtins.input = saved
+
+
+def run(code, workdir, bridge):
+    global _tid, _bridge
+    with _execution_lock:
+        _bridge, _tid = bridge, threading.get_ident()
+        _clear_plots()
+        out, saved = _attach_console(bridge)
         try:
-            from matplotlib._pylab_helpers import Gcf
-            for manager in list(Gcf.get_all_fig_managers()):
-                try:
-                    save_figure(manager.canvas.figure)
-                except Exception:
-                    traceback.print_exc()
-                finally:
-                    Gcf.destroy(manager.num)
-        except ImportError:
+            os.chdir(workdir)
+            if workdir not in sys.path:
+                sys.path.insert(0, workdir)
+            _namespace["__file__"] = "<editor>"
+            exec(compile(code, "<editor>", "exec"), _namespace, _namespace)
+            # Save figures which remain open if the backend did not handle plt.show().
+            try:
+                from matplotlib._pylab_helpers import Gcf
+                for manager in list(Gcf.get_all_fig_managers()):
+                    try:
+                        save_figure(manager.canvas.figure)
+                    except Exception:
+                        traceback.print_exc()
+                    finally:
+                        Gcf.destroy(manager.num)
+            except ImportError:
+                pass
+        except SystemExit:
             pass
-    except SystemExit:
-        pass
-    except KeyboardInterrupt:
-        out.write("\n[stopped]\n")
-    except BaseException as e:
-        traceback.print_exception(type(e), e, e.__traceback__.tb_next)
-    finally:
-        out.flush()
-        sys.stdout, sys.stderr, sys.stdin, builtins.input = saved
-        _tid = None
+        except KeyboardInterrupt:
+            out.write("\n[stopped]\n")
+        except BaseException as e:
+            traceback.print_exception(type(e), e, e.__traceback__.tb_next)
+        finally:
+            _restore_console(out, saved)
+            _tid = None
+
+
+def console(code, workdir, bridge):
+    """Execute one interactive-console submission in the same globals as editor scripts."""
+    global _bridge, _console_buffer
+    with _execution_lock:
+        _bridge = bridge
+        out, saved = _attach_console(bridge)
+        try:
+            os.chdir(workdir)
+            if workdir not in sys.path:
+                sys.path.insert(0, workdir)
+            source = _console_buffer + code + "\n"
+            try:
+                compiled = codeop.compile_command(source, "<console>", "single")
+            except (SyntaxError, OverflowError, ValueError):
+                _console_buffer = ""
+                raise
+            if compiled is None:
+                _console_buffer = source
+                return False
+            _console_buffer = ""
+            eval(compiled, _namespace, _namespace)
+            return True
+        except SystemExit:
+            return True
+        except KeyboardInterrupt:
+            out.write("\nKeyboardInterrupt\n")
+            _console_buffer = ""
+            return True
+        except BaseException:
+            traceback.print_exc()
+            _console_buffer = ""
+            return True
+        finally:
+            _restore_console(out, saved)
 
 
 def stop():
