@@ -111,6 +111,20 @@ def run(code, workdir, bridge):
         if workdir not in sys.path:
             sys.path.insert(0, workdir)
         exec(compile(code, "<editor>", "exec"), {"__name__": "__main__"})
+        # Fallback: save figures which remain open if the selected Matplotlib
+        # backend did not handle plt.show(). Figures already shown by the
+        # PyIDE backend are removed from Gcf, so they are not saved twice.
+        try:
+            from matplotlib._pylab_helpers import Gcf
+            for manager in list(Gcf.get_all_fig_managers()):
+                try:
+                    save_figure(manager.canvas.figure)
+                except Exception:
+                    traceback.print_exc()
+                finally:
+                    Gcf.destroy(manager.num)
+        except ImportError:
+            pass
     except SystemExit:
         pass
     except KeyboardInterrupt:
