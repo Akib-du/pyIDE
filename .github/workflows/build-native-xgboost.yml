@@ -39,6 +39,9 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          # The action's default includes the removed SDK package named "tools".
+          packages: platform-tools
 
       - name: Install Android native build tools
         run: |
