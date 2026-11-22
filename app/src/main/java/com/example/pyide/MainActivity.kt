@@ -242,7 +242,6 @@ fun Ide(py: PyObject, proj: File, dark: Boolean, toggleTheme: () -> Unit) {
                     textStyle = mono.copy(color = fg),
                     cursorBrush = SolidColor(fg),
                     visualTransformation = remember(dark) { PyHighlighter(dark) },
-                    softWrap = false,
                     keyboardOptions = KeyboardOptions(autoCorrect = false, keyboardType = KeyboardType.Ascii),
                     modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState()).padding(top = 8.dp)
                 )
