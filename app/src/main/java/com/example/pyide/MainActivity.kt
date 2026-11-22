@@ -5,6 +5,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.*
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -19,6 +20,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.*
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.*
@@ -128,6 +130,10 @@ fun Ide(py: PyObject, proj: File, dark: Boolean, toggleTheme: () -> Unit) {
     var running by remember { mutableStateOf(false) }
     var waitingInput by remember { mutableStateOf(false) }
     var inputText by remember { mutableStateOf("") }
+    var consoleInput by remember { mutableStateOf("") }
+    var consoleContinuation by remember { mutableStateOf(false) }
+    var consoleBusy by remember { mutableStateOf(false) }
+    var consoleFraction by remember { mutableStateOf(0.32f) }
     var plots by remember { mutableStateOf(listOf<String>()) }
     var problems by remember { mutableStateOf(listOf<Problem>()) }
     var completions by remember { mutableStateOf(listOf<Pair<String, String>>()) }
@@ -172,8 +178,23 @@ fun Ide(py: PyObject, proj: File, dark: Boolean, toggleTheme: () -> Unit) {
         bridge.submit(l)
     }
 
+    fun sendConsole() {
+        val command = consoleInput
+        if (command.isBlank() && !consoleContinuation) return
+        consoleInput = ""
+        output += (if (consoleContinuation) "... " else ">>> ") + command + "\n"
+        scope.launch {
+            consoleBusy = true
+            val complete = withContext(Dispatchers.IO) {
+                py.callAttr("console", command, proj.absolutePath, bridge).toString() == "True"
+            }
+            consoleContinuation = !complete
+            consoleBusy = false
+        }
+    }
+
     fun run() = scope.launch {
-        running = true; tab = 0; output = ""; plots = emptyList(); waitingInput = false
+        running = true; tab = 0; output = ""; plots = emptyList(); waitingInput = false; consoleContinuation = false
         withContext(Dispatchers.IO) { py.callAttr("run", tfv.text, proj.absolutePath, bridge) }
         running = false; waitingInput = false
     }
@@ -221,13 +242,14 @@ fun Ide(py: PyObject, proj: File, dark: Boolean, toggleTheme: () -> Unit) {
                 }
             }
             Spacer(Modifier.weight(1f))
+            TextButton(onClick = { File(proj, current).writeText(tfv.text) }) { Text("Save") }
             TextButton(onClick = toggleTheme) { Text(if (dark) "Light" else "Dark") }
             if (running) Button(onClick = { stop() }) { Text("■ Stop") }
             else Button(onClick = { run() }) { Text("▶ Run") }
         }
 
         // Editor with line numbers
-        Box(Modifier.weight(0.5f).fillMaxWidth()) {
+        Box(Modifier.weight(1f - consoleFraction).fillMaxWidth()) {
             val mono = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 14.sp, lineHeight = 20.sp)
             val fg = MaterialTheme.colorScheme.onSurface
             Row(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
@@ -261,6 +283,17 @@ fun Ide(py: PyObject, proj: File, dark: Boolean, toggleTheme: () -> Unit) {
             }
         }
 
+        // Draggable divider: adjust the editor / console split.
+        Box(
+            Modifier.fillMaxWidth().height(8.dp)
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .pointerInput(Unit) {
+                    detectVerticalDragGestures { _, dragAmount ->
+                        consoleFraction = (consoleFraction - dragAmount / 900f).coerceIn(0.18f, 0.75f)
+                    }
+                }
+        )
+
         // Bottom panel
         ScrollableTabRow(selectedTabIndex = tab, edgePadding = 0.dp) {
             Tab(tab == 0, { tab = 0 }, text = { Text("Console") })
@@ -268,22 +301,28 @@ fun Ide(py: PyObject, proj: File, dark: Boolean, toggleTheme: () -> Unit) {
             Tab(tab == 2, { tab = 2 }, text = { Text("Plots (${plots.size})") })
             Tab(tab == 3, { tab = 3 }, text = { Text("Packages") })
         }
-        Box(Modifier.weight(0.5f).fillMaxWidth().padding(8.dp)) {
+        Box(Modifier.weight(consoleFraction).fillMaxWidth().padding(8.dp)) {
             val mono = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 13.sp)
             when (tab) {
                 0 -> Column(Modifier.fillMaxSize()) {
                     val sc = rememberScrollState()
                     LaunchedEffect(output.length) { sc.scrollTo(sc.maxValue) }
                     Text(output, style = mono, modifier = Modifier.weight(1f).fillMaxWidth().verticalScroll(sc))
-                    if (waitingInput) Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                         OutlinedTextField(
-                            inputText, { inputText = it }, singleLine = true, label = { Text("Input") },
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                            keyboardActions = KeyboardActions(onSend = { sendInput() }),
+                            value = if (waitingInput) inputText else consoleInput,
+                            onValueChange = { if (waitingInput) inputText = it else consoleInput = it },
+                            singleLine = true,
+                            label = { Text(if (waitingInput) "Program input" else if (consoleContinuation) "... continue Python command" else "Python command") },
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send, keyboardType = KeyboardType.Ascii),
+                            keyboardActions = KeyboardActions(onSend = { if (waitingInput) sendInput() else sendConsole() }),
                             modifier = Modifier.weight(1f)
                         )
                         Spacer(Modifier.width(8.dp))
-                        Button(onClick = { sendInput() }) { Text("Send") }
+                        Button(
+                            enabled = waitingInput || (!running && !consoleBusy),
+                            onClick = { if (waitingInput) sendInput() else sendConsole() }
+                        ) { Text(if (waitingInput) "Send" else "Enter") }
                     }
                 }
                 1 -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
