@@ -34,18 +34,17 @@ chaquopy {
     defaultConfig { }
     productFlavors {
         getByName("standard") {
-            version = "3.11"
+            version = "3.10"
             pip {
                 install("jedi==0.19.1")
                 install("pyflakes==3.2.0")
-                install("numpy")
-                install("pandas")
-                install("scipy")
-                install("matplotlib")
-                install("scikit-learn")
-                install("statsmodels")
+                install("numpy==1.23.3")
+                install("pandas==2.1.3")
+                install("scipy==1.8.1")
+                install("matplotlib==3.6.0")
+                install("scikit-learn==1.3.2")
                 install("pillow")
-                install("seaborn==0.13.2")
+                install("seaborn==0.12.2")
             }
         }
         getByName("dl") {
