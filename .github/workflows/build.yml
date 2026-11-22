@@ -1,0 +1,63 @@
+name: Build PyIDE APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Restore application source
+        run: |
+          if [ ! -f app/build.gradle.kts ]; then
+            mkdir -p /tmp/pyide-source
+            unzip -q PyIDE-source.zip -d /tmp/pyide-source
+            cp -a /tmp/pyide-source/PyIDE/. .
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add -A
+            git commit -m "Add complete PyIDE Android application source"
+            git push
+          fi
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Gradle 8.7
+        run: |
+          curl -L https://services.gradle.org/distributions/gradle-8.7-bin.zip -o /tmp/gradle.zip
+          sudo unzip -q /tmp/gradle.zip -d /opt
+          echo "/opt/gradle-8.7/bin" >> "$GITHUB_PATH"
+
+      - name: Build ARM64 standard APK
+        working-directory: .
+        run: |
+          cd PyIDE 2>/dev/null || true
+          if [ -f app/build.gradle.kts ]; then
+            gradle assembleStandardDebug --no-daemon --stacktrace
+          else
+            gradle -p . assembleStandardDebug --no-daemon --stacktrace
+          fi
+
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: PyIDE-standard-arm64-debug
+          path: app/build/outputs/apk/standard/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14
