@@ -185,11 +185,17 @@ fun Ide(py: PyObject, proj: File, dark: Boolean, toggleTheme: () -> Unit) {
         output += (if (consoleContinuation) "... " else ">>> ") + command + "\n"
         scope.launch {
             consoleBusy = true
-            val complete = withContext(Dispatchers.IO) {
-                py.callAttr("console", command, proj.absolutePath, bridge).toString() == "True"
+            try {
+                val complete = withContext(Dispatchers.IO) {
+                    py.callAttr("console", command, proj.absolutePath, bridge).toString() == "True"
+                }
+                consoleContinuation = !complete
+            } catch (e: Exception) {
+                output += "Console error: ${e.message}\n"
+                consoleContinuation = false
+            } finally {
+                consoleBusy = false
             }
-            consoleContinuation = !complete
-            consoleBusy = false
         }
     }
 
