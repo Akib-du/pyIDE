@@ -3,7 +3,7 @@ name: Build PyIDE APK
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, upgrade/python-3.13-chaquopy-17.2]
     paths:
       - '.github/workflows/build.yml'
       - 'PyIDE-source.zip'
