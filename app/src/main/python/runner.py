@@ -126,26 +126,24 @@ def run(code, workdir, bridge):
                 sys.path.insert(0, workdir)
             _namespace["__file__"] = "<editor>"
             exec(compile(code, "<editor>", "exec"), _namespace, _namespace)
-        # Fallback: save figures which remain open if the selected Matplotlib
-        # backend did not handle plt.show(). Figures already shown by the
-        # PyIDE backend are removed from Gcf, so they are not saved twice.
-        try:
-            from matplotlib._pylab_helpers import Gcf
-            for manager in list(Gcf.get_all_fig_managers()):
-                try:
-                    save_figure(manager.canvas.figure)
-                except Exception:
-                    traceback.print_exc()
-                finally:
-                    Gcf.destroy(manager.num)
-        except ImportError:
+            # Save figures which remain open if the backend did not handle plt.show().
+            try:
+                from matplotlib._pylab_helpers import Gcf
+                for manager in list(Gcf.get_all_fig_managers()):
+                    try:
+                        save_figure(manager.canvas.figure)
+                    except Exception:
+                        traceback.print_exc()
+                    finally:
+                        Gcf.destroy(manager.num)
+            except ImportError:
+                pass
+        except SystemExit:
             pass
-    except SystemExit:
-        pass
-    except KeyboardInterrupt:
-        out.write("\n[stopped]\n")
-    except BaseException as e:
-        traceback.print_exception(type(e), e, e.__traceback__.tb_next)
+        except KeyboardInterrupt:
+            out.write("\\n[stopped]\\n")
+        except BaseException as e:
+            traceback.print_exception(type(e), e, e.__traceback__.tb_next)
         finally:
             _restore_console(out, saved)
             _tid = None
