@@ -141,7 +141,7 @@ def run(code, workdir, bridge):
         except SystemExit:
             pass
         except KeyboardInterrupt:
-            out.write("\\n[stopped]\\n")
+            out.write("\n[stopped]\n")
         except BaseException as e:
             traceback.print_exception(type(e), e, e.__traceback__.tb_next)
         finally:
@@ -159,7 +159,7 @@ def console(code, workdir, bridge):
             os.chdir(workdir)
             if workdir not in sys.path:
                 sys.path.insert(0, workdir)
-            source = _console_buffer + code + "\\n"
+            source = _console_buffer + code + "\n"
             try:
                 compiled = codeop.compile_command(source, "<console>", "single")
             except (SyntaxError, OverflowError, ValueError):
@@ -174,7 +174,7 @@ def console(code, workdir, bridge):
         except SystemExit:
             return True
         except KeyboardInterrupt:
-            out.write("\\nKeyboardInterrupt\\n")
+            out.write("\nKeyboardInterrupt\n")
             _console_buffer = ""
             return True
         except BaseException:
